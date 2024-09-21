@@ -46,6 +46,11 @@ const adminSchema = new Schema(
       required: true,
       unique: true,
     },
+    StaffStatus: {
+      type: String,
+      enum: ["online", "offline"],
+      default: "offline",
+    },
     CoverImage: {
       type: String,
     },

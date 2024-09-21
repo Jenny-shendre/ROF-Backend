@@ -41,8 +41,8 @@ const attendantSchema = new mongoose.Schema(
     },
     status: {
       type: String,
-      enum: ["available", "assigned"],
-      default: "available",
+      enum: ["available", "assigned", "not available"],
+      default: "not available",
     },
     team: {
       type: String,

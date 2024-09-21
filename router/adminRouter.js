@@ -1,6 +1,6 @@
 import express from "express";
-import { changePassword, createAdmin, deleteAdmin, deleteAllAdmins, forgotPassword, loginUser, setNewPassword, updateAdmin, verifyOtp } from "../Controllers/adminController.js";
-import { verifyTokenAndRole } from "../Middlewares/loginMiddleware.js";
+import { changePassword, createAdmin, deleteAdmin, deleteAllAdmins, forgotPassword, loginUser, logoutUser, setNewPassword, updateAdmin, verifyOtp } from "../Controllers/adminController.js";
+import { verifyToken, verifyTokenAndRole } from "../Middlewares/loginMiddleware.js";
 
 
 const router = express.Router();
@@ -11,6 +11,8 @@ router.post("/forget-pass", forgotPassword);
 router.post("/verify-otp", verifyOtp);
 router.post("/set-password", setNewPassword);
 router.post("/change-password", changePassword);
+router.post("/logout", verifyToken, logoutUser);  // Protected route (needs token)
+
 
 
 router.put('/update/:id', updateAdmin);

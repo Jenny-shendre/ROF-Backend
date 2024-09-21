@@ -111,7 +111,15 @@ export const loginUser = async (req, res) => {
       phone: user.phone,
     };
 
+    await Model.findByIdAndUpdate(user._id, { $set: { StaffStatus: "online" } });
+
+
     if (role === "sales executive") {
+
+      await Attendant.findByIdAndUpdate(user._id, {
+        $set: { status: "available", StaffStatus: "online" },
+      });
+
       response.employeeId = user.employeeId;
     }
 
@@ -123,6 +131,45 @@ export const loginUser = async (req, res) => {
       .json({ message: "An error occurred, please try again later." });
   }
 };
+
+
+export const logoutUser = async (req, res) => {
+  try {
+    const { role, phone } = req.user; // req.user is set by the verifyToken middleware
+
+    const Model = getModelByRole(role);
+    if (!Model) {
+      return res
+        .status(StatusCodes.BAD_REQUEST)
+        .json({ message: "Invalid role" });
+    }
+
+    // Common update: Set StaffStatus to "offline" for all roles
+    let updateData = { StaffStatus: "offline" };
+
+    // If the role is "sales executive", also set status to "not available"
+    if (role === "sales executive") {
+      updateData.status = "not available";
+    }
+
+    // Update the corresponding user document in the database
+    await Model.findOneAndUpdate(
+      { phone },
+      { $set: updateData }
+    );
+
+    return res.status(StatusCodes.OK).json({ message: "Logout successful" });
+  } catch (error) {
+    console.error("Error in logoutUser:", error);
+    return res
+      .status(StatusCodes.INTERNAL_SERVER_ERROR)
+      .json({ message: "An error occurred, please try again later." });
+  }
+};
+
+
+
+
 
 // Generate OTP
 const generateOTP = () => {
