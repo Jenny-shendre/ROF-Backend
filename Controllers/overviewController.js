@@ -6,6 +6,8 @@ import { BarDiagram } from "../Models/BarDiagram.js";
 import SalesNote from "../Models/SalesNote.js";
 import Partner from "../Models/ChannelPartner.js";
 import Team from "../Models/teamModel.js";
+import SalesManager from "../Models/salesManager.js";
+import { Admin } from "../Models/adminModel.js";
 const calculateStartDate = (interval) => {
   const now = new Date();
   let startDate;
@@ -102,23 +104,70 @@ export const DealsClosed = asyncHandler(async (req, res) => {
   }
 });
 
+
 export const onlineEmployStatus = asyncHandler(async (req, res) => {
   const { interval } = req.query;
   try {
     const startDate = calculateStartDate(interval);
+
     const allAttendants = await Attendant.find({
       updatedAt: { $gte: startDate },
     });
 
-    const totalStatus = allAttendants.reduce((total, attendant) => {
+    const allSalesManagers = await SalesManager.find({
+      updatedAt: { $gte: startDate },
+    });
+
+    const allAdmins = await Admin.find({
+      updatedAt: { $gte: startDate },
+    });
+
+    const totalAttendantsOnline = allAttendants.reduce((total, attendant) => {
       return total + (attendant.StaffStatus === "online" ? 1 : 0);
     }, 0);
-    console.log(allAttendants);
-    res.status(200).json({ totalStatus });
+
+    const totalSalesManagersOnline = allSalesManagers.reduce((total, manager) => {
+      return total + (manager.StaffStatus === "online" ? 1 : 0);
+    }, 0);
+
+    const totalAdminsOnline = allAdmins.reduce((total, admin) => {
+      return total + (admin.StaffStatus === "online" ? 1 : 0);
+    }, 0);
+
+    const totalOnline = totalAttendantsOnline + totalSalesManagersOnline + totalAdminsOnline;
+
+    const totalStatus = { totalOnline };
+
+    
+    // console.log(allAttendants, allSalesManagers, allAdmins);
+    res.status(200).json( totalStatus );
   } catch (error) {
     return res.status(500).json({ message: error.message });
   }
 });
+
+
+// export const onlineEmployStatus = asyncHandler(async (req, res) => {
+//   const { interval } = req.query;
+//   try {
+//     const startDate = calculateStartDate(interval);
+//     const allAttendants = await Attendant.find({
+//       updatedAt: { $gte: startDate },
+//     });
+
+//     const totalStatus = allAttendants.reduce((total, attendant) => {
+//       return total + (attendant.StaffStatus === "online" ? 1 : 0);
+//     }, 0);
+
+//     console.log(allAttendants);
+//     res.status(200).json({ totalStatus });
+//   } catch (error) {
+//     return res.status(500).json({ message: error.message });
+//   }
+// });
+
+
+
 /*
 export const Top_Executive = asyncHandler(async (req, res) => {
   const { interval } = req.query;
