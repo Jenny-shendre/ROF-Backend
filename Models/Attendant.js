@@ -25,6 +25,10 @@ const createlog = new mongoose.Schema(
     notes: {
       type: String,
     },
+    count: {
+      type: Number,
+      default: 1,
+    },
     attendTime: Date,
     callCloseTime: Date,
   },

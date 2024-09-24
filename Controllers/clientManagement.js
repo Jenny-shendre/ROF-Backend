@@ -1,5 +1,7 @@
 import asyncHandler from "../utils/asyncHandler.js";
 import Attendant from "../Models/Attendant.js";
+import Customer from "../Models/customer.js";
+import Partner from "../Models/ChannelPartner.js";
 /*
 export const acceptClient = asyncHandler(async (req, res) => {
   const { employeeId } = req.params;
@@ -107,6 +109,7 @@ export const rejectClient = asyncHandler(async (req, res) => {
 });
 */
 
+/* old code
 export const rejectClient = asyncHandler(async (req, res) => {
   const { employeeId } = req.params;
   try {
@@ -174,7 +177,131 @@ export const rejectClient = asyncHandler(async (req, res) => {
       .json({ message: "Failed to update client status", error });
   }
 });
+*/
 
+export const rejectClient = asyncHandler(async (req, res) => {
+  const { employeeId } = req.params;
+
+  try {
+    const attendant = await Attendant.findOne({ employeeId });
+
+    if (!attendant) {
+      return res.status(404).json({ message: "Attendant not found" });
+    }
+
+    if (attendant.ClientName.length === 0) {
+      return res.status(404).json({ message: "No clients to update" });
+    }
+
+    const lastClient = attendant.ClientName[attendant.ClientName.length - 1];
+
+    // Reject the last client in the list
+    const updatedAttendant = await Attendant.findOneAndUpdate(
+      { employeeId, "ClientName._id": lastClient._id },
+      {
+        $set: {
+          "ClientName.$.accepted": "rejected",
+          "ClientName.$.completed": "notCompleted",
+          status: "available", // Mark attendant as available after rejection
+        },
+      },
+      { new: true }
+    );
+
+    if (!updatedAttendant) {
+      return res
+        .status(404)
+        .json({ message: "Failed to update client status" });
+    }
+
+    // Find a second available attendant to reassign the client
+    const secondAttendant = await Attendant.findOne({
+      employeeId: { $ne: updatedAttendant.employeeId },
+      project: updatedAttendant.project,
+      status: "available",
+    });
+
+    if (secondAttendant) {
+      // Check if the client is already assigned to this attendant
+      const clientAlreadyAssigned = secondAttendant.ClientName.some(
+        (client) => client._id.toString() === lastClient._id.toString()
+      );
+
+      // Ensure recentPendingAppointment is defined
+      /* Add logic to fetch recentPendingAppointment */
+      console.log("lastClient", lastClient);
+      if (!clientAlreadyAssigned) {
+        // Reassign the rejected client to the available attendant
+        await Attendant.updateOne(
+          { employeeId: secondAttendant.employeeId },
+          {
+            $push: { ClientName: lastClient },
+            $set: { status: "assigned" },
+          }
+        );
+
+        // Update the Customer or Partner
+        const customer = await Customer.findOne({
+          customerId: lastClient.ClientId,
+        });
+        const partner = await Partner.findOne({
+          partnerId: lastClient.ClientId,
+        });
+        console.log("ClientId", customer);
+        if (customer) {
+          await Customer.updateOne(
+            { _id: customer._id },
+            {
+              $set: {
+                attendantName: secondAttendant.name,
+                attendant: {
+                  _id: secondAttendant._id,
+                  name: secondAttendant.name,
+                },
+              },
+              $push: {
+                log: {
+                  projectName: lastClient.projectName,
+                  projectLocation: lastClient.projectLocation,
+                  attendant: secondAttendant._id,
+                  attendantName: secondAttendant.name,
+                  team: secondAttendant.team,
+                },
+              },
+            }
+          );
+          console.log("Customer log updated with Attendant B's information.");
+        } else if (partner) {
+          await Partner.updateOne(
+            { _id: partner._id },
+            {
+              $set: {
+                attendantName: secondAttendant.name,
+                attendant: secondAttendant._id,
+              },
+            }
+          );
+        }
+
+        console.log(
+          "Client reassigned to second attendant:",
+          secondAttendant.employeeId
+        );
+      } else {
+        console.log("Client is already assigned to this attendant.");
+      }
+    } else {
+      console.log("No available attendant found. Client remains rejected.");
+    }
+
+    res.status(200).json(updatedAttendant);
+  } catch (error) {
+    console.error("Error updating client status:", error);
+    return res
+      .status(500)
+      .json({ message: "Failed to update client status", error });
+  }
+});
 export const attendantMeetingOver = asyncHandler(async (req, res) => {
   const { employeeId } = req.params;
   const attendant = await Attendant.findOne({ employeeId });
@@ -872,7 +999,7 @@ export const upcomingAppointments = asyncHandler(async (req, res) => {
   res.status(200).json(upcomingAppointments);
 });
 */
-
+/*
 export const upcomingAppointments = asyncHandler(async (req, res) => {
   const { employeeId } = req.params;
   const attendant = await Attendant.findOne({ employeeId });
@@ -1013,6 +1140,228 @@ export const upcomingAppointments = asyncHandler(async (req, res) => {
   }
 
   // Return the filtered upcoming appointments
+  res.status(200).json(upcomingAppointments);
+});
+*/
+
+export const upcomingAppointments = asyncHandler(async (req, res) => {
+  const { employeeId } = req.params;
+  const attendantA = await Attendant.findOne({ employeeId });
+
+  if (!attendantA) {
+    return res.status(404).json({ message: "Attendant not found" });
+  }
+
+  const upcomingAppointments = attendantA.ClientName.filter(
+    (log) => log.completed === "progress"
+  );
+
+  const pendingAppointments = upcomingAppointments.filter(
+    (log) => log.accepted === "pending"
+  );
+
+  if (pendingAppointments.length > 0) {
+    pendingAppointments.sort(
+      (a, b) => new Date(b.createdAt) - new Date(a.createdAt)
+    );
+
+    const recentPendingAppointment = pendingAppointments[0];
+    console.log(
+      "Processing the most recent pending appointment:",
+      recentPendingAppointment._id
+    );
+
+    const duplicateAppointment = attendantA.ClientName.filter(
+      (log) => log._id.toString() === recentPendingAppointment._id.toString()
+    );
+
+    if (duplicateAppointment.length > 1) {
+      console.log("Duplicate appointment found, rejecting...");
+      await Attendant.findOneAndUpdate(
+        { employeeId, "ClientName._id": recentPendingAppointment._id },
+        {
+          $set: {
+            "ClientName.$[elem].accepted": "rejected",
+            "ClientName.$[elem].completed": "notCompleted",
+            status: "available",
+          },
+        },
+        {
+          arrayFilters: [{ "elem._id": recentPendingAppointment._id }],
+          new: true,
+        }
+      );
+      console.log(
+        "Duplicate appointment rejected. No further action required."
+      );
+    } else {
+      let timerA = setTimeout(async () => {
+        try {
+          console.log("Checking appointment status after 5 minutes...");
+          const updatedAttendantA = await Attendant.findOne({
+            employeeId,
+            "ClientName._id": recentPendingAppointment._id,
+            "ClientName.accepted": "pending",
+          });
+
+          if (updatedAttendantA) {
+            console.log(
+              "Appointment still pending, rejecting for Attendant A..."
+            );
+
+            await Attendant.findOneAndUpdate(
+              { employeeId, "ClientName._id": recentPendingAppointment._id },
+              {
+                $set: {
+                  "ClientName.$[elem].accepted": "rejected",
+                  "ClientName.$[elem].completed": "notCompleted",
+                  status: "available",
+                },
+              },
+              {
+                arrayFilters: [{ "elem._id": recentPendingAppointment._id }],
+                new: true,
+              }
+            );
+
+            // Now transfer to Attendant B
+            console.log("Reassigning to second attendant...");
+            const attendantB = await Attendant.findOne({
+              employeeId: { $ne: updatedAttendantA.employeeId },
+              project: updatedAttendantA.project,
+              status: "available",
+              "ClientName._id": { $ne: recentPendingAppointment._id },
+            });
+
+            if (attendantB) {
+              console.log("Assigning the appointment to Attendant B...");
+
+              // Fetch the customer information
+              const customer = await Customer.findOne({
+                customerId: recentPendingAppointment.ClientId,
+              });
+              const PartnerData = await Partner.findOne({
+                partnerId: recentPendingAppointment.ClientId,
+              });
+              recentPendingAppointment.count += 1;
+
+              await Attendant.bulkWrite([
+                {
+                  updateOne: {
+                    filter: { employeeId: attendantB.employeeId },
+                    update: {
+                      $push: { ClientName: recentPendingAppointment },
+                      $set: { status: "assigned" },
+                    },
+                  },
+                },
+              ]);
+
+              // Update customer's log with Attendant B's information
+              if (customer) {
+                await Customer.updateOne(
+                  { _id: customer._id },
+                  {
+                    $set: {
+                      attendantName: attendantB.name,
+                      attendant: {
+                        _id: attendantB._id,
+                        name: attendantB.name,
+                      },
+                    },
+                    $push: {
+                      log: {
+                        projectName: recentPendingAppointment.projectName,
+                        projectLocation:
+                          recentPendingAppointment.projectLocation,
+                        attendant: attendantB._id,
+                        attendantName: attendantB.name,
+                        team: attendantB.team,
+                      },
+                    },
+                  }
+                );
+                console.log(
+                  "Customer log updated with Attendant B's information."
+                );
+              } else if (PartnerData) {
+                await Partner.updateOne(
+                  { _id: PartnerData._id },
+                  {
+                    $set: {
+                      attendantName: attendantB.name,
+                      attendant: attendantB._id,
+                    },
+                  }
+                );
+              }
+              let timerB = setTimeout(async () => {
+                const updatedAttendantB = await Attendant.findOne({
+                  employeeId: attendantB.employeeId,
+                  "ClientName._id": recentPendingAppointment._id,
+                  "ClientName.accepted": "pending",
+                });
+
+                if (updatedAttendantB) {
+                  console.log("Attendant B did not accept, rejecting...");
+
+                  await Attendant.findOneAndUpdate(
+                    {
+                      employeeId: attendantB.employeeId,
+                      "ClientName._id": recentPendingAppointment._id,
+                    },
+                    {
+                      $set: {
+                        "ClientName.$[elem].accepted": "rejected",
+                        "ClientName.$[elem].completed": "notCompleted",
+                        status: "available",
+                      },
+                    },
+                    {
+                      arrayFilters: [
+                        { "elem._id": recentPendingAppointment._id },
+                      ],
+                      new: true,
+                    }
+                  );
+
+                  await Attendant.updateMany(
+                    {
+                      employeeId: {
+                        $in: [
+                          updatedAttendantA.employeeId,
+                          attendantB.employeeId,
+                        ],
+                      },
+                    },
+                    { $set: { status: "available" } }
+                  );
+                  console.log("Both attendants rejected the appointment.");
+                } else {
+                  clearTimeout(timerB);
+                  console.log(
+                    "Attendant B accepted the appointment, no further action."
+                  );
+                }
+              }, 300000); // 5 minutes for Attendant B
+            } else {
+              console.log(
+                "No second attendant found, keeping appointment rejected for Attendant A."
+              );
+            }
+          } else {
+            console.log("Appointment was accepted, no action taken.");
+            clearTimeout(timerA);
+          }
+        } catch (error) {
+          console.error("Error processing appointment:", error);
+        }
+      }, 300000); // 5 minutes delay for Attendant A
+    }
+  } else {
+    console.log("No pending appointments found.");
+  }
+
   res.status(200).json(upcomingAppointments);
 });
 
