@@ -1236,114 +1236,128 @@ export const upcomingAppointments = asyncHandler(async (req, res) => {
             if (attendantB) {
               console.log("Assigning the appointment to Attendant B...");
 
-              // Fetch the customer information
-              const customer = await Customer.findOne({
-                customerId: recentPendingAppointment.ClientId,
-              });
-              const PartnerData = await Partner.findOne({
-                partnerId: recentPendingAppointment.ClientId,
-              });
-              recentPendingAppointment.count += 1;
+              // Check if Attendant B already has the appointment
+              const existingAppointment = attendantB.ClientName.find(
+                (log) =>
+                  log._id.toString() === recentPendingAppointment._id.toString()
+              );
 
-              await Attendant.bulkWrite([
-                {
-                  updateOne: {
-                    filter: { employeeId: attendantB.employeeId },
-                    update: {
-                      $push: { ClientName: recentPendingAppointment },
-                      $set: { status: "assigned" },
+              if (!existingAppointment) {
+                // Fetch the customer information
+                const customer = await Customer.findOne({
+                  customerId: recentPendingAppointment.ClientId,
+                });
+                const PartnerData = await Partner.findOne({
+                  partnerId: recentPendingAppointment.ClientId,
+                });
+                recentPendingAppointment.count += 1;
+
+                await Attendant.bulkWrite([
+                  {
+                    updateOne: {
+                      filter: { employeeId: attendantB.employeeId },
+                      update: {
+                        $push: { ClientName: recentPendingAppointment },
+                        $set: { status: "assigned" },
+                      },
                     },
                   },
-                },
-              ]);
+                ]);
 
-              // Update customer's log with Attendant B's information
-              if (customer) {
-                await Customer.updateOne(
-                  { _id: customer._id },
-                  {
-                    $set: {
-                      attendantName: attendantB.name,
-                      attendant: {
-                        _id: attendantB._id,
-                        name: attendantB.name,
-                      },
-                    },
-                    $push: {
-                      log: {
-                        projectName: recentPendingAppointment.projectName,
-                        projectLocation:
-                          recentPendingAppointment.projectLocation,
-                        attendant: attendantB._id,
-                        attendantName: attendantB.name,
-                        team: attendantB.team,
-                      },
-                    },
-                  }
-                );
-                console.log(
-                  "Customer log updated with Attendant B's information."
-                );
-              } else if (PartnerData) {
-                await Partner.updateOne(
-                  { _id: PartnerData._id },
-                  {
-                    $set: {
-                      attendantName: attendantB.name,
-                      attendant: attendantB._id,
-                    },
-                  }
-                );
-              }
-              let timerB = setTimeout(async () => {
-                const updatedAttendantB = await Attendant.findOne({
-                  employeeId: attendantB.employeeId,
-                  "ClientName._id": recentPendingAppointment._id,
-                  "ClientName.accepted": "pending",
-                });
-
-                if (updatedAttendantB) {
-                  console.log("Attendant B did not accept, rejecting...");
-
-                  await Attendant.findOneAndUpdate(
-                    {
-                      employeeId: attendantB.employeeId,
-                      "ClientName._id": recentPendingAppointment._id,
-                    },
+                // Update customer's log with Attendant B's information
+                if (customer) {
+                  await Customer.updateOne(
+                    { _id: customer._id },
                     {
                       $set: {
-                        "ClientName.$[elem].accepted": "rejected",
-                        "ClientName.$[elem].completed": "notCompleted",
-                        status: "available",
+                        attendantName: attendantB.name,
+                        attendant: {
+                          _id: attendantB._id,
+                          name: attendantB.name,
+                        },
                       },
-                    },
-                    {
-                      arrayFilters: [
-                        { "elem._id": recentPendingAppointment._id },
-                      ],
-                      new: true,
+                      $push: {
+                        log: {
+                          projectName: recentPendingAppointment.projectName,
+                          projectLocation:
+                            recentPendingAppointment.projectLocation,
+                          attendant: attendantB._id,
+                          attendantName: attendantB.name,
+                          team: attendantB.team,
+                        },
+                      },
                     }
                   );
-
-                  await Attendant.updateMany(
-                    {
-                      employeeId: {
-                        $in: [
-                          updatedAttendantA.employeeId,
-                          attendantB.employeeId,
-                        ],
-                      },
-                    },
-                    { $set: { status: "available" } }
-                  );
-                  console.log("Both attendants rejected the appointment.");
-                } else {
-                  clearTimeout(timerB);
                   console.log(
-                    "Attendant B accepted the appointment, no further action."
+                    "Customer log updated with Attendant B's information."
+                  );
+                } else if (PartnerData) {
+                  await Partner.updateOne(
+                    { _id: PartnerData._id },
+                    {
+                      $set: {
+                        attendantName: attendantB.name,
+                        attendant: attendantB._id,
+                      },
+                    }
                   );
                 }
-              }, 300000); // 5 minutes for Attendant B
+
+                // Start the timer for Attendant B
+                let timerB = setTimeout(async () => {
+                  const updatedAttendantB = await Attendant.findOne({
+                    employeeId: attendantB.employeeId,
+                    "ClientName._id": recentPendingAppointment._id,
+                    "ClientName.accepted": "pending",
+                  });
+
+                  if (updatedAttendantB) {
+                    console.log("Attendant B did not accept, rejecting...");
+
+                    await Attendant.findOneAndUpdate(
+                      {
+                        employeeId: attendantB.employeeId,
+                        "ClientName._id": recentPendingAppointment._id,
+                      },
+                      {
+                        $set: {
+                          "ClientName.$[elem].accepted": "rejected",
+                          "ClientName.$[elem].completed": "notCompleted",
+                          status: "available",
+                        },
+                      },
+                      {
+                        arrayFilters: [
+                          { "elem._id": recentPendingAppointment._id },
+                        ],
+                        new: true,
+                      }
+                    );
+
+                    await Attendant.updateMany(
+                      {
+                        employeeId: {
+                          $in: [
+                            updatedAttendantA.employeeId,
+                            attendantB.employeeId,
+                          ],
+                        },
+                      },
+                      { $set: { status: "available" } }
+                    );
+                    console.log("Both attendants rejected the appointment.");
+                  } else {
+                    clearTimeout(timerB);
+                    console.log(
+                      "Attendant B accepted the appointment, no further action."
+                    );
+                  }
+                }, 300000); // 5 minutes for Attendant B
+              } else {
+                console.log(
+                  "Attendant B already has this appointment, no action taken."
+                );
+              }
             } else {
               console.log(
                 "No second attendant found, keeping appointment rejected for Attendant A."
